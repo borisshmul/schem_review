@@ -114,7 +114,7 @@ _HS_DIFF_N_RE = re.compile(r"[_\-]?N$|-$|_NEG$", re.IGNORECASE)
 
 @register(
     "SGMII/SerDes: verify both P/N sides present and AC-coupling caps on each lane",
-    category="ETH",
+    category="SGMII",
 )
 def sgmii_differential_pairs(netlist: Netlist) -> List[Finding]:
     findings: List[Finding] = []
@@ -185,7 +185,7 @@ def sgmii_differential_pairs(netlist: Netlist) -> List[Finding]:
 
 @register(
     "SGMII/SerDes: verify DC bias resistors on AC-coupled lanes",
-    category="ETH",
+    category="SGMII",
 )
 def sgmii_dc_bias(netlist: Netlist) -> List[Finding]:
     findings: List[Finding] = []
@@ -232,7 +232,7 @@ def sgmii_dc_bias(netlist: Netlist) -> List[Finding]:
 
 @register(
     "SGMII/SerDes: check line termination resistors (100 Ω differential or 50 Ω each side)",
-    category="ETH",
+    category="SGMII",
 )
 def sgmii_termination(netlist: Netlist) -> List[Finding]:
     """
@@ -293,7 +293,7 @@ def sgmii_termination(netlist: Netlist) -> List[Finding]:
 
 @register(
     "SGMII/SerDes: detect polarity swap (P and N pins connected to opposite nets)",
-    category="ETH",
+    category="SGMII",
 )
 def sgmii_polarity_swap(netlist: Netlist) -> List[Finding]:
     """
@@ -372,7 +372,7 @@ def _rgmii_bus_key(net_name: str) -> str:
 
 @register(
     "RGMII: verify bus completeness (TXD0-3, TX_CLK, TX_CTL, RXD0-3, RX_CLK, RX_CTL)",
-    category="ETH",
+    category="RGMII",
 )
 def rgmii_bus_completeness(netlist: Netlist) -> List[Finding]:
     findings: List[Finding] = []
@@ -439,7 +439,7 @@ def rgmii_bus_completeness(netlist: Netlist) -> List[Finding]:
 
 @register(
     "RGMII: check series termination resistors on data/clock lines",
-    category="ETH",
+    category="RGMII",
 )
 def rgmii_series_termination(netlist: Netlist) -> List[Finding]:
     """
@@ -470,7 +470,7 @@ def rgmii_series_termination(netlist: Netlist) -> List[Finding]:
 
 @register(
     "RGMII: detect voltage domain mismatch between MAC and PHY on the same RGMII bus",
-    category="ETH",
+    category="RGMII",
 )
 def rgmii_voltage_domain(netlist: Netlist) -> List[Finding]:
     """
@@ -539,7 +539,7 @@ _MDI_PAIR_N = re.compile(r"[_\-]?N$|-$|_NEG$|(?:TD|RD)[-]", re.IGNORECASE)
 
 @register(
     "MDI: verify Bob Smith (center-tap) termination on Ethernet MDI pairs",
-    category="ETH",
+    category="MDI",
 )
 def mdi_bob_smith_termination(netlist: Netlist) -> List[Finding]:
     """
@@ -589,7 +589,7 @@ def mdi_bob_smith_termination(netlist: Netlist) -> List[Finding]:
 
 @register(
     "MDI: verify each MDI pair has both + and − sides defined",
-    category="ETH",
+    category="MDI",
 )
 def mdi_pair_association(netlist: Netlist) -> List[Finding]:
     findings: List[Finding] = []
@@ -638,7 +638,7 @@ def mdi_pair_association(netlist: Netlist) -> List[Finding]:
 
 @register(
     "MDI: check LED current-limiting resistors on Ethernet status LEDs",
-    category="ETH",
+    category="MDI",
 )
 def ethernet_led_current(netlist: Netlist) -> List[Finding]:
     """
@@ -707,7 +707,7 @@ _PHYADDR_RE = re.compile(r"PHY_?ADDR|PHYAD", re.IGNORECASE)
 
 @register(
     "MDIO: verify pull-up resistors on MDIO and MDC lines",
-    category="ETH",
+    category="MDIO",
 )
 def mdio_pullup(netlist: Netlist) -> List[Finding]:
     findings: List[Finding] = []
@@ -747,7 +747,7 @@ def _has_resistor_to_power_local(net_name: str, netlist: Netlist) -> bool:
 
 @register(
     "MDIO: detect duplicate PHY address strapping on same management bus",
-    category="ETH",
+    category="MDIO",
 )
 def phy_address_conflict(netlist: Netlist) -> List[Finding]:
     """
@@ -820,7 +820,7 @@ def phy_address_conflict(netlist: Netlist) -> List[Finding]:
 
 @register(
     "MDIO: flag PHY reset pins hard-wired to VCC (reset never asserted)",
-    category="ETH",
+    category="MDIO",
 )
 def phy_reset_sequencing(netlist: Netlist) -> List[Finding]:
     """
@@ -892,7 +892,7 @@ def phy_reset_sequencing(netlist: Netlist) -> List[Finding]:
 
 @register(
     "Power: detect direct connections between AGND and DGND (should be isolated except at star point)",
-    category="ETH",
+    category="PWR",
 )
 def agnd_dgnd_isolation(netlist: Netlist) -> List[Finding]:
     """
@@ -951,7 +951,7 @@ def agnd_dgnd_isolation(netlist: Netlist) -> List[Finding]:
 
 @register(
     "Power: check ferrite bead / power filter derating on PHY supply rails",
-    category="ETH",
+    category="PWR",
 )
 def ferrite_bead_derating(netlist: Netlist) -> List[Finding]:
     """

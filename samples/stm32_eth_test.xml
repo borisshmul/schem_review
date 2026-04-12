@@ -1,0 +1,217 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<iCDB>
+  <Schematic>
+
+    <!-- Sheet 1: MCU and Power -->
+    <Sheet name="MCU_Power">
+
+      <!-- U1: STM32F427 MCU -->
+      <Component refdes="U1" partNumber="STM32F427">
+
+        <!-- Power and ground -->
+        <Pin pinNumber="1"  pinName="VDD"    pinType="PWR"     netName="VCC_3V3"/>
+        <Pin pinNumber="2"  pinName="VDDA"   pinType="PWR"     netName="VCC_3V3"/>
+        <Pin pinNumber="3"  pinName="VSS"    pinType="PWR"     netName="GND"/>
+        <Pin pinNumber="4"  pinName="VSSA"   pinType="PWR"     netName="GND"/>
+
+        <!-- I2C1 - complete bus with pull-ups (no findings expected) -->
+        <Pin pinNumber="5"  pinName="PB6"    pinType="OUTPUT"  netName="I2C1_SCL"/>
+        <Pin pinNumber="6"  pinName="PB7"    pinType="OUTPUT"  netName="I2C1_SDA"/>
+
+        <!-- I2C2 - SDA present but SCL intentionally missing (i2c_signals WARN) -->
+        <Pin pinNumber="7"  pinName="PB10"   pinType="OUTPUT"  netName="I2C2_SDA"/>
+
+        <!-- SPI1 - no CS net present (spi_signals WARN: missing CS) -->
+        <Pin pinNumber="8"  pinName="PA5"    pinType="OUTPUT"  netName="SPI1_SCK"/>
+        <Pin pinNumber="9"  pinName="PA6"    pinType="INPUT"   netName="SPI1_MISO"/>
+        <Pin pinNumber="10" pinName="PA7"    pinType="OUTPUT"  netName="SPI1_MOSI"/>
+
+        <!-- SPI2 - complete bus -->
+        <Pin pinNumber="11" pinName="PB13"   pinType="OUTPUT"  netName="SPI2_SCK"/>
+        <Pin pinNumber="12" pinName="PB14"   pinType="INPUT"   netName="SPI2_MISO"/>
+        <Pin pinNumber="13" pinName="PB15"   pinType="OUTPUT"  netName="SPI2_MOSI"/>
+        <Pin pinNumber="14" pinName="PB12"   pinType="OUTPUT"  netName="SPI2_CS"/>
+
+        <!-- UART1 - correct TX/RX pair -->
+        <Pin pinNumber="15" pinName="PA9"    pinType="OUTPUT"  netName="UART1_TX"/>
+        <Pin pinNumber="16" pinName="PA10"   pinType="INPUT"   netName="UART1_RX"/>
+
+        <!-- UART2 - TX only, RX missing (uart_signals WARN) -->
+        <Pin pinNumber="17" pinName="PA2"    pinType="OUTPUT"  netName="UART2_TX"/>
+
+        <!-- Reset: active-low NRST (correctly named) -->
+        <Pin pinNumber="18" pinName="NRST"   pinType="INPUT"   netName="NRST"/>
+
+        <!-- Boot mode enable -->
+        <Pin pinNumber="19" pinName="BOOT0"  pinType="INPUT"   netName="BOOT0_EN"/>
+
+        <!-- Differential oscillator input - only P side present (differential_pairs + clock_signals WARN) -->
+        <Pin pinNumber="20" pinName="OSC_P"  pinType="INPUT"   netName="MCLK_P"/>
+
+        <!-- USB differential pair - both sides present -->
+        <Pin pinNumber="21" pinName="DP"     pinType="BIDIR"   netName="USB_DP"/>
+        <Pin pinNumber="22" pinName="DM"     pinType="BIDIR"   netName="USB_DM"/>
+
+        <!-- Ethernet TX differential pair - both sides present -->
+        <Pin pinNumber="23" pinName="TXRXP"  pinType="OUTPUT"  netName="ETH_TXP"/>
+        <Pin pinNumber="24" pinName="TXRXN"  pinType="OUTPUT"  netName="ETH_TXN"/>
+
+        <!-- ADC input with no net: intentionally unconnected (unconnected_pins ERROR) -->
+        <Pin pinNumber="25" pinName="PC0"    pinType="INPUT"/>
+
+        <!-- Status LED drive -->
+        <Pin pinNumber="26" pinName="PC13"   pinType="OUTPUT"  netName="LED_STATUS"/>
+      </Component>
+
+      <!-- U5: TPS62130 3.3V switching regulator -->
+      <!-- Note: no decoupling cap on VOUT net (missing_decoupling_caps WARN) -->
+      <Component refdes="U5" partNumber="TPS62130">
+        <Pin pinNumber="1" pinName="VIN"  pinType="PWR"    netName="VCC_5V"/>
+        <Pin pinNumber="2" pinName="GND"  pinType="PWR"    netName="GND"/>
+        <Pin pinNumber="3" pinName="VOUT" pinType="PWR"    netName="VCC_3V3"/>
+        <Pin pinNumber="4" pinName="EN"   pinType="INPUT"  netName="REG_EN#"/>
+        <Pin pinNumber="5" pinName="SW"   pinType="OUTPUT" netName="REG_SW"/>
+        <Pin pinNumber="6" pinName="FB"   pinType="INPUT"  netName="REG_FB"/>
+      </Component>
+
+      <!-- J1: Power input connector -->
+      <Component refdes="J1" partNumber="CONN_PWR_2">
+        <Pin pinNumber="1" pinName="VIN"  pinType="PASSIVE" netName="VCC_5V"/>
+        <Pin pinNumber="2" pinName="GND"  pinType="PASSIVE" netName="GND"/>
+      </Component>
+
+      <!-- Decoupling caps for U1 -->
+      <Component refdes="C1" partNumber="100nF_0402">
+        <Pin pinNumber="1" pinName="P" pinType="PASSIVE" netName="VCC_3V3"/>
+        <Pin pinNumber="2" pinName="N" pinType="PASSIVE" netName="GND"/>
+      </Component>
+      <Component refdes="C2" partNumber="100nF_0402">
+        <Pin pinNumber="1" pinName="P" pinType="PASSIVE" netName="VCC_3V3"/>
+        <Pin pinNumber="2" pinName="N" pinType="PASSIVE" netName="GND"/>
+      </Component>
+      <Component refdes="C3" partNumber="10uF_0805">
+        <Pin pinNumber="1" pinName="P" pinType="PASSIVE" netName="VCC_3V3"/>
+        <Pin pinNumber="2" pinName="N" pinType="PASSIVE" netName="GND"/>
+      </Component>
+
+      <!-- R3: NRST pull-up -->
+      <Component refdes="R3" partNumber="10K_0402">
+        <Pin pinNumber="1" pinName="A" pinType="PASSIVE" netName="VCC_3V3"/>
+        <Pin pinNumber="2" pinName="B" pinType="PASSIVE" netName="NRST"/>
+      </Component>
+
+      <!-- R4: BOOT0 pull-down -->
+      <Component refdes="R4" partNumber="10K_0402">
+        <Pin pinNumber="1" pinName="A" pinType="PASSIVE" netName="BOOT0_EN"/>
+        <Pin pinNumber="2" pinName="B" pinType="PASSIVE" netName="GND"/>
+      </Component>
+
+      <!-- D1: Status LED -->
+      <Component refdes="D1" partNumber="LED_GREEN_0402">
+        <Pin pinNumber="1" pinName="A" pinType="PASSIVE" netName="LED_STATUS"/>
+        <Pin pinNumber="2" pinName="K" pinType="PASSIVE" netName="GND"/>
+      </Component>
+
+    </Sheet>
+
+    <!-- Sheet 2: Peripherals -->
+    <Sheet name="Peripherals">
+
+      <!-- U2: TLC5940 SPI LED driver connected to SPI1 (still missing CS) -->
+      <Component refdes="U2" partNumber="TLC5940">
+        <Pin pinNumber="1"  pinName="SIN"    pinType="INPUT"   netName="SPI1_MOSI"/>
+        <Pin pinNumber="2"  pinName="SCLK"   pinType="INPUT"   netName="SPI1_SCK"/>
+        <Pin pinNumber="3"  pinName="VPRG"   pinType="INPUT"   netName="GND"/>
+        <Pin pinNumber="4"  pinName="BLANK"  pinType="INPUT"   netName="LED_BLANK"/>
+        <Pin pinNumber="5"  pinName="XLAT"   pinType="INPUT"   netName="LED_XLAT"/>
+        <Pin pinNumber="6"  pinName="DCPRG"  pinType="INPUT"   netName="VCC_3V3"/>
+        <Pin pinNumber="7"  pinName="IREF"   pinType="PASSIVE" netName="LED_IREF"/>
+        <Pin pinNumber="8"  pinName="SOUT"   pinType="OUTPUT"  netName="SPI1_MISO"/>
+        <Pin pinNumber="9"  pinName="VCC"    pinType="PWR"     netName="VCC_3V3"/>
+        <Pin pinNumber="10" pinName="GND"    pinType="PWR"     netName="GND"/>
+      </Component>
+
+      <!-- U3: AT24C256 I2C EEPROM on I2C1 -->
+      <Component refdes="U3" partNumber="AT24C256">
+        <Pin pinNumber="1" pinName="SDA" pinType="BIDIR"  netName="I2C1_SDA"/>
+        <Pin pinNumber="2" pinName="SCL" pinType="INPUT"  netName="I2C1_SCL"/>
+        <Pin pinNumber="3" pinName="WP"  pinType="INPUT"  netName="GND"/>
+        <Pin pinNumber="4" pinName="A0"  pinType="INPUT"  netName="GND"/>
+        <Pin pinNumber="5" pinName="A1"  pinType="INPUT"  netName="GND"/>
+        <Pin pinNumber="6" pinName="A2"  pinType="INPUT"  netName="GND"/>
+        <Pin pinNumber="7" pinName="VCC" pinType="PWR"    netName="VCC_3V3"/>
+        <Pin pinNumber="8" pinName="GND" pinType="PWR"    netName="GND"/>
+      </Component>
+
+      <!-- R1, R2: I2C1 pull-ups to power -->
+      <Component refdes="R1" partNumber="4K7_0402">
+        <Pin pinNumber="1" pinName="A" pinType="PASSIVE" netName="I2C1_SDA"/>
+        <Pin pinNumber="2" pinName="B" pinType="PASSIVE" netName="VCC_3V3"/>
+      </Component>
+      <Component refdes="R2" partNumber="4K7_0402">
+        <Pin pinNumber="1" pinName="A" pinType="PASSIVE" netName="I2C1_SCL"/>
+        <Pin pinNumber="2" pinName="B" pinType="PASSIVE" netName="VCC_3V3"/>
+      </Component>
+
+      <!-- U4: LMK04828 clock generator with differential outputs -->
+      <Component refdes="U4" partNumber="LMK04828">
+        <Pin pinNumber="1"  pinName="CLKin0_P"  pinType="INPUT"  netName="MCLK_P"/>
+        <Pin pinNumber="2"  pinName="CLKout0_P" pinType="OUTPUT" netName="REFCLK_P"/>
+        <Pin pinNumber="3"  pinName="CLKout0_N" pinType="OUTPUT" netName="REFCLK_N"/>
+        <Pin pinNumber="4"  pinName="CLKout1_P" pinType="OUTPUT" netName="ADCCLK_P"/>
+        <Pin pinNumber="5"  pinName="CLKout1_N" pinType="OUTPUT" netName="ADCCLK_N"/>
+        <Pin pinNumber="6"  pinName="VDD"        pinType="PWR"    netName="VCC_3V3"/>
+        <Pin pinNumber="7"  pinName="GND"        pinType="PWR"    netName="GND"/>
+        <Pin pinNumber="8"  pinName="SCK"        pinType="INPUT"  netName="SPI2_SCK"/>
+        <Pin pinNumber="9"  pinName="SDI"        pinType="INPUT"  netName="SPI2_MOSI"/>
+        <Pin pinNumber="10" pinName="SDO"        pinType="OUTPUT" netName="SPI2_MISO"/>
+        <Pin pinNumber="11" pinName="CSB"        pinType="INPUT"  netName="SPI2_CS"/>
+        <Pin pinNumber="12" pinName="STATUS0"    pinType="OUTPUT" netName="CLK_STATUS"/>
+      </Component>
+
+      <!-- Decoupling caps for U2, U3, U4 -->
+      <Component refdes="C4" partNumber="100nF_0402">
+        <Pin pinNumber="1" pinName="P" pinType="PASSIVE" netName="VCC_3V3"/>
+        <Pin pinNumber="2" pinName="N" pinType="PASSIVE" netName="GND"/>
+      </Component>
+      <Component refdes="C5" partNumber="100nF_0402">
+        <Pin pinNumber="1" pinName="P" pinType="PASSIVE" netName="VCC_3V3"/>
+        <Pin pinNumber="2" pinName="N" pinType="PASSIVE" netName="GND"/>
+      </Component>
+      <Component refdes="C6" partNumber="100nF_0402">
+        <Pin pinNumber="1" pinName="P" pinType="PASSIVE" netName="VCC_3V3"/>
+        <Pin pinNumber="2" pinName="N" pinType="PASSIVE" netName="GND"/>
+      </Component>
+
+      <!-- R5: LED IREF resistor -->
+      <Component refdes="R5" partNumber="2K2_0402">
+        <Pin pinNumber="1" pinName="A" pinType="PASSIVE" netName="LED_IREF"/>
+        <Pin pinNumber="2" pinName="B" pinType="PASSIVE" netName="GND"/>
+      </Component>
+
+      <!-- Enable signal using N_ prefix style.
+           REG_EN# (hash style) on Sheet 1 uses the opposite convention.
+           The enable_signals check flags this mixed naming. -->
+      <Component refdes="R6" partNumber="10K_0402">
+        <Pin pinNumber="1" pinName="A" pinType="PASSIVE" netName="VCC_3V3"/>
+        <Pin pinNumber="2" pinName="B" pinType="PASSIVE" netName="N_EN_LED"/>
+      </Component>
+
+      <!-- U6: Load switch enabled by N_EN_LED (prefix style) -->
+      <Component refdes="U6" partNumber="TPS22919">
+        <Pin pinNumber="1" pinName="IN"  pinType="PWR"   netName="VCC_3V3"/>
+        <Pin pinNumber="2" pinName="OUT" pinType="PWR"   netName="VCC_LED"/>
+        <Pin pinNumber="3" pinName="GND" pinType="PWR"   netName="GND"/>
+        <Pin pinNumber="4" pinName="EN"  pinType="INPUT" netName="N_EN_LED"/>
+      </Component>
+
+      <!-- TP1: Test point using VDD_3V3 instead of VCC_3V3.
+           Both normalize to the same token: net_naming_consistency WARN. -->
+      <Component refdes="TP1" partNumber="TESTPOINT">
+        <Pin pinNumber="1" pinName="TP" pinType="PASSIVE" netName="VDD_3V3"/>
+      </Component>
+
+    </Sheet>
+
+  </Schematic>
+</iCDB>
