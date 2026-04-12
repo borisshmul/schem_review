@@ -1,30 +1,30 @@
-"""Check selection panel — scrollable toggle list of registered checks."""
+"""Check selection panel — scrollable toggle list."""
 from __future__ import annotations
 
 import curses
 from typing import Dict, List, Optional, Set
 
+# Color pair IDs — must match app.py
+_CP_SEL    = 3
+_CP_CHK_ON = 10
+_CP_ACCENT = 19
+_CP_INFO   = 7
+
 
 class CheckPicker:
-    """Panel for enabling/disabling individual checks before a run."""
-
-    PAIR_SELECTED = 3
-    PAIR_ENABLED = 10
-    PAIR_DISABLED = 11
+    """Panel for enabling / disabling individual checks."""
 
     def __init__(self) -> None:
-        # Populated after checks are imported
         self._checks: List[Dict] = []
         self.enabled: Set[str] = set()
         self.cursor: int = 0
         self.scroll: int = 0
 
-    # ------------------------------------------------------------------
+    # ── Data ──────────────────────────────────────────────────────────────────
 
     def load_checks(self, checks: List[Dict]) -> None:
-        """Set the available checks (list of registry dicts)."""
         self._checks = checks
-        self.enabled = {c["name"] for c in checks}  # all enabled by default
+        self.enabled = {c["name"] for c in checks}
         self.cursor = 0
         self.scroll = 0
 
@@ -32,7 +32,7 @@ class CheckPicker:
     def enabled_checks(self) -> Set[str]:
         return self.enabled
 
-    # ------------------------------------------------------------------
+    # ── Key handling ──────────────────────────────────────────────────────────
 
     def handle_key(self, key: int) -> Optional[str]:
         if not self._checks:
@@ -60,28 +60,30 @@ class CheckPicker:
             self.cursor = min(len(self._checks) - 1, self.cursor + 10)
         return None
 
-    # ------------------------------------------------------------------
+    # ── Drawing ───────────────────────────────────────────────────────────────
 
     def draw(self, win: "curses.window") -> None:
         win.erase()
         h, w = win.getmaxyx()
-        if h < 3 or w < 20:
+        if h < 2 or w < 10:
             return
 
-        # Header
-        hdr = f"  {'#':>3}  {'St':2}  {'Cat':6}  {'Check name':<30}  Description"
+        # Row 0: summary
+        n_on = len(self.enabled)
+        n_tot = len(self._checks)
+        summary = f" {n_on}/{n_tot} checks enabled"
         try:
-            win.attron(curses.A_UNDERLINE)
-            win.addnstr(0, 0, hdr, w - 1)
-            win.attroff(curses.A_UNDERLINE)
+            win.attron(curses.color_pair(_CP_ACCENT))
+            win.addnstr(0, 0, summary, w - 1)
+            win.attroff(curses.color_pair(_CP_ACCENT))
         except curses.error:
             pass
 
-        list_h = h - 2
+        list_h = h - 1
         if list_h < 1 or not self._checks:
             return
 
-        # Adjust scroll
+        # Scroll adjustment
         if self.cursor < self.scroll:
             self.scroll = self.cursor
         elif self.cursor >= self.scroll + list_h:
@@ -95,34 +97,39 @@ class CheckPicker:
 
             chk = self._checks[idx]
             name = chk["name"]
-            cat = chk.get("category", "DRC")[:6]
+            cat = chk.get("category", "DRC")
             desc = chk.get("description", "")
-            is_enabled = name in self.enabled
-            is_sel = idx == self.cursor
+            is_on = name in self.enabled
+            is_cur = idx == self.cursor
 
-            status = "[x]" if is_enabled else "[ ]"
-            desc_col_w = max(w - 48, 10)
-            line = f"  {idx+1:>3}  {status}  {cat:<6}  {name:<30}  {desc[:desc_col_w]}"
+            status = "[\u2713]" if is_on else "[ ]"
+
+            if w >= 52:
+                cat_w = 4
+                name_w = min(22, max(8, w - cat_w - 12))
+                desc_w = max(4, w - cat_w - name_w - 12)
+                line = (
+                    f"  {status} {cat[:cat_w]:<{cat_w}}  "
+                    f"{name[:name_w]:<{name_w}}  {desc[:desc_w]}"
+                )
+            elif w >= 28:
+                name_w = max(6, w - 10)
+                line = f"  {status}  {name[:name_w]}"
+            else:
+                line = f" {status} {name[:w - 6]}"
 
             try:
-                if is_sel:
-                    win.attron(curses.color_pair(self.PAIR_SELECTED) | curses.A_BOLD)
+                if is_cur:
+                    win.attron(curses.color_pair(_CP_SEL) | curses.A_BOLD)
                     win.addnstr(screen_row, 0, line, w - 1)
-                    win.attroff(curses.color_pair(self.PAIR_SELECTED) | curses.A_BOLD)
-                elif is_enabled:
+                    win.attroff(curses.color_pair(_CP_SEL) | curses.A_BOLD)
+                elif is_on:
+                    win.attron(curses.color_pair(_CP_CHK_ON))
                     win.addnstr(screen_row, 0, line, w - 1)
+                    win.attroff(curses.color_pair(_CP_CHK_ON))
                 else:
                     win.attron(curses.A_DIM)
                     win.addnstr(screen_row, 0, line, w - 1)
                     win.attroff(curses.A_DIM)
             except curses.error:
                 pass
-
-        # Footer hint
-        hint = " ↑↓ navigate  Space toggle  A select-all  N deselect-all"
-        try:
-            win.attron(curses.A_DIM)
-            win.addnstr(h - 1, 0, hint, w - 1)
-            win.attroff(curses.A_DIM)
-        except curses.error:
-            pass
