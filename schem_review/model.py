@@ -86,6 +86,8 @@ class Net:
     name: str
     pins: List[Pin] = field(default_factory=list)
     is_power: bool = False
+    voltage_domain: str = ""          # inferred supply domain, e.g. "3V3", "1V8"
+    net_constraint_class: str = ""    # e.g. "DIFF_PAIR", "HIGH_SPEED", "POWER"
 
 
 @dataclass
@@ -99,6 +101,7 @@ class Component:
     value: Optional[float] = None   # base SI unit: Ω / F / H / V
     value_str: str = ""             # original string, e.g. "100nF", "4K7"
     package: str = ""               # e.g. "0402", "SOT-23"
+    supply_voltage: Optional[float] = None  # inferred supply voltage in Volts
 
     def pin_by_number(self, number: str) -> Optional[Pin]:
         for p in self.pins:

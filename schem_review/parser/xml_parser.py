@@ -217,7 +217,12 @@ def _pass_nets(path: str, state: _ParseState) -> None:
                 net_name = _first_attr(elem, _NET_NAME_ATTRS)
                 if net_name:
                     current_net = net_name
-                    state._ensure_net(net_name)
+                    net = state._ensure_net(net_name)
+                    # Parse net constraint class if the XML provides it
+                    _NET_CLASS_ATTRS = ["netclass", "constraintclass", "class", "nettype"]
+                    cls = _first_attr(elem, _NET_CLASS_ATTRS)
+                    if cls:
+                        net.net_constraint_class = cls
 
             elif local in ("pinref", "connection", "pinconn", "netpin") and current_net:
                 refdes = _first_attr(elem, _REFDES_ATTRS)

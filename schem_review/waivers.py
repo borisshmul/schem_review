@@ -125,8 +125,10 @@ def apply_waivers(
 
         {"finding": Finding, "waiver": dict}
 
-    Waived findings are downgraded to INFO and moved to a separate section
-    in the report so they are still visible but don't pollute the active list.
+    A waiver without both a ``reason`` and an ``author`` field is treated as
+    unjustified: the finding is NOT suppressed.  Instead it is re-emitted as
+    INFO with the note "waived without justification" so the engineer is forced
+    to document the decision properly.
     """
     active: List[Finding] = []
     waived: List[Dict] = []
@@ -134,7 +136,22 @@ def apply_waivers(
     for finding in findings:
         matched = _find_matching_waiver(finding, waivers)
         if matched:
-            waived.append({"finding": finding, "waiver": matched})
+            has_reason = bool(matched.get("reason", "").strip())
+            has_author = bool(matched.get("author", "").strip())
+            if has_reason and has_author:
+                waived.append({"finding": finding, "waiver": matched})
+            else:
+                # Re-emit as INFO so the engineer can't silently suppress
+                from dataclasses import replace
+                re_emitted = replace(
+                    finding,
+                    severity=Severity.INFO,
+                    message=(
+                        f"{finding.message}  "
+                        f"[waived without justification — add 'reason' and 'author' to waiver]"
+                    ),
+                )
+                active.append(re_emitted)
         else:
             active.append(finding)
 

@@ -11,9 +11,10 @@ import sys
 from pathlib import Path
 
 
-def _run_headless(path: str, check_names: list, use_waivers: bool) -> int:
+def _run_headless(path: str, check_names: list, use_waivers: bool, verbose: bool) -> int:
     """Parse and run checks without the curses UI, printing to stdout."""
     from schem_review.checks import get_all_checks, run_checks
+    from schem_review.confidence import apply_confidence_filter
     from schem_review.output import write_json, write_log, write_md
     from schem_review.parser import ParseError, parse_file
     from schem_review.waivers import apply_waivers, load_waivers
@@ -49,6 +50,9 @@ def _run_headless(path: str, check_names: list, use_waivers: bool) -> int:
             print(f"\nWaivers loaded: {len(waivers)}")
         all_findings, waived_entries = apply_waivers(all_findings, waivers)
 
+    # Apply confidence-based severity downgrade / suppression
+    all_findings = apply_confidence_filter(all_findings, verbose=verbose)
+
     # Severity breakdown
     from schem_review.model import Severity
     crit  = sum(1 for f in all_findings if f.severity == Severity.CRITICAL)
@@ -60,6 +64,8 @@ def _run_headless(path: str, check_names: list, use_waivers: bool) -> int:
           f"{warns} WARN, {infos} INFO)")
     if waived_entries:
         print(f"Waived:   {len(waived_entries)} (see report Acknowledged section)")
+    if verbose:
+        print("(--verbose: low-confidence findings included)")
 
     for f in all_findings:
         affected = ", ".join(f.affected) if f.affected else "—"
@@ -77,7 +83,15 @@ def _run_headless(path: str, check_names: list, use_waivers: bool) -> int:
     print(f"Markdown: {md_path}")
     print(f"JSON:     {json_path}")
 
-    return 1 if crit > 0 or errs > 0 else 0
+    # Exit code grading:
+    #   2 — CRITICAL findings present (board will be destroyed / permanently broken)
+    #   1 — ERROR findings present (board will not work as intended)
+    #   0 — clean (WARN and INFO are advisory only)
+    if crit > 0:
+        return 2
+    if errs > 0:
+        return 1
+    return 0
 
 
 def main() -> None:
@@ -102,11 +116,17 @@ def main() -> None:
         help="Ignore waivers.toml / waivers.json even if present",
         default=False,
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Include low-confidence findings (< 0.60) that are normally suppressed",
+        default=False,
+    )
     args = parser.parse_args()
 
     if args.file:
         check_names = [c.strip() for c in args.checks.split(",") if c.strip()]
-        sys.exit(_run_headless(args.file, check_names, not args.no_waivers))
+        sys.exit(_run_headless(args.file, check_names, not args.no_waivers, args.verbose))
     else:
         try:
             from schem_review.ui.app import App

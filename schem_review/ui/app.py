@@ -9,6 +9,7 @@ from typing import List, Optional
 
 from schem_review import __version__
 from schem_review.checks import get_all_checks, run_checks
+from schem_review.confidence import apply_confidence_filter
 from schem_review.model import Finding, Netlist
 from schem_review.output import write_log, write_md
 from schem_review.parser import ParseError, parse_file
@@ -801,7 +802,9 @@ class App:
             counter[0] += 1
             self._draw_progress(counter[0], total, f"{next(spinner)} {check_name}")
 
-        self.findings = run_checks(self.netlist, enabled, progress_cb)
+        self.findings = apply_confidence_filter(
+            run_checks(self.netlist, enabled, progress_cb)
+        )
 
         try:
             self.last_log = write_log(selected, self.findings)
