@@ -126,6 +126,9 @@ def parse_hkp(path: str) -> Netlist:
     netlist = Netlist(source_file=str(p))
     _do_parse(lines, tokens, dialect, netlist)
     _finalize(netlist)
+    from schem_review.component_classifier import classify_component
+    for comp in netlist.components.values():
+        classify_component(comp)
     return netlist
 
 
@@ -211,6 +214,9 @@ def _do_parse(lines: List[str], tokens: Dict, dialect: str, netlist: Netlist) ->
                 if not refdes[0].isalpha() and refdes[0] != "_":
                     continue  # not a valid refdes
                 comp = Component(refdes=refdes, part_number=parttype, sheet=sheet)
+                if refdes in netlist.components:
+                    if refdes not in netlist.duplicate_refdes:
+                        netlist.duplicate_refdes.append(refdes)
                 netlist.components[refdes] = comp
                 _ensure_sheet(netlist, sheet).components.append(comp)
                 current_comp = comp

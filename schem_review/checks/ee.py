@@ -9,7 +9,7 @@ import re
 from typing import Dict, List, Optional, Set, Tuple
 
 from schem_review.checks.registry import register
-from schem_review.model import Finding, Netlist, Severity
+from schem_review.model import ComponentType, Finding, Netlist, PinDirection, Severity
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -504,5 +504,592 @@ def clock_signals(netlist: Netlist) -> List[Finding]:
                 ),
                 affected=[diff_n[base]],
             ))
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# 9. JTAG / SWD signals
+# ---------------------------------------------------------------------------
+
+# Required signals for each debug interface.
+# Each entry: signal key -> regex that matches nets belonging to that signal.
+_JTAG_SIGNALS: Dict[str, re.Pattern] = {
+    "TDI":  re.compile(r"(?<![A-Z])TDI(?![A-Z])|_TDI$|^TDI_", re.IGNORECASE),
+    "TDO":  re.compile(r"(?<![A-Z])TDO(?![A-Z])|_TDO$|^TDO_", re.IGNORECASE),
+    "TMS":  re.compile(r"(?<![A-Z])TMS(?![A-Z])|_TMS$|^TMS_", re.IGNORECASE),
+    "TCK":  re.compile(r"(?<![A-Z])TCK(?![A-Z])|_TCK$|^TCK_|JTAG_CLK", re.IGNORECASE),
+}
+
+_SWD_SIGNALS: Dict[str, re.Pattern] = {
+    "SWDIO": re.compile(r"SWDIO|SWD_IO|SWD_DATA", re.IGNORECASE),
+    "SWDCLK": re.compile(r"SWDCLK|SWD_CLK|SWCLK", re.IGNORECASE),
+}
+
+# SWO is optional (trace output) — flag as INFO if SWD is present but SWO is absent
+_SWO_RE = re.compile(r"(?<![A-Z])SWO(?![A-Z])|SWD_SWO|TRACESWO", re.IGNORECASE)
+# NRST is strongly recommended alongside SWD
+_NRST_RE = re.compile(r"NRST|N_RST|RST_N|RESET_N|/RESET", re.IGNORECASE)
+
+
+@register(
+    "Check JTAG (TDI/TDO/TMS/TCK) and SWD (SWDIO/SWDCLK) debug interface completeness",
+    category="EE",
+)
+def jtag_swd_signals(netlist: Netlist) -> List[Finding]:
+    findings: List[Finding] = []
+    net_names = list(netlist.nets.keys())
+
+    # Detect which interfaces are present
+    jtag_found: Dict[str, List[str]] = {}
+    for sig, rx in _JTAG_SIGNALS.items():
+        matches = [n for n in net_names if rx.search(n)]
+        if matches:
+            jtag_found[sig] = matches
+
+    swd_found: Dict[str, List[str]] = {}
+    for sig, rx in _SWD_SIGNALS.items():
+        matches = [n for n in net_names if rx.search(n)]
+        if matches:
+            swd_found[sig] = matches
+
+    has_jtag = bool(jtag_found)
+    has_swd = bool(swd_found)
+
+    if not has_jtag and not has_swd:
+        return findings  # no debug interface detected — don't flag
+
+    # ---- JTAG completeness ------------------------------------------------
+    if has_jtag:
+        missing_jtag = [sig for sig in _JTAG_SIGNALS if sig not in jtag_found]
+        if missing_jtag:
+            present_nets = [n for nets in jtag_found.values() for n in nets]
+            findings.append(Finding(
+                id="jtag_incomplete",
+                check_name="jtag_swd_signals",
+                severity=Severity.WARN,
+                message=(
+                    f"JTAG interface is incomplete — "
+                    f"missing signal(s): {', '.join(missing_jtag)}"
+                ),
+                affected=present_nets,
+            ))
+
+    # ---- SWD completeness -------------------------------------------------
+    if has_swd:
+        missing_swd = [sig for sig in _SWD_SIGNALS if sig not in swd_found]
+        if missing_swd:
+            present_nets = [n for nets in swd_found.values() for n in nets]
+            findings.append(Finding(
+                id="swd_incomplete",
+                check_name="jtag_swd_signals",
+                severity=Severity.WARN,
+                message=(
+                    f"SWD interface is incomplete — "
+                    f"missing signal(s): {', '.join(missing_swd)}"
+                ),
+                affected=present_nets,
+            ))
+
+        # SWO (trace) — informational if absent
+        has_swo = any(_SWO_RE.search(n) for n in net_names)
+        if not has_swo:
+            present_nets = [n for nets in swd_found.values() for n in nets]
+            findings.append(Finding(
+                id="swd_no_swo",
+                check_name="jtag_swd_signals",
+                severity=Severity.INFO,
+                message=(
+                    "SWD interface present but no SWO/trace net found — "
+                    "add SWO if printf-style trace output is needed"
+                ),
+                affected=present_nets,
+            ))
+
+        # NRST alongside SWD
+        has_nrst = any(_NRST_RE.search(n) for n in net_names)
+        if not has_nrst:
+            present_nets = [n for nets in swd_found.values() for n in nets]
+            findings.append(Finding(
+                id="swd_no_nrst",
+                check_name="jtag_swd_signals",
+                severity=Severity.WARN,
+                message=(
+                    "SWD interface present but no NRST net found — "
+                    "debugger cannot force a hardware reset without NRST"
+                ),
+                affected=present_nets,
+            ))
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# 10. USB Full Speed D+ pull-up
+# ---------------------------------------------------------------------------
+
+_USB_DP_RE = re.compile(r'USB_?D\+?P$|DP$|D\+$|USBDP', re.IGNORECASE)
+_USB_DM_RE = re.compile(r'USB_?D\-?M$|DM$|D\-$|USBDM', re.IGNORECASE)
+
+
+@register(
+    "USB Full Speed: verify 1.5 kΩ D+ pull-up resistor exists for host enumeration",
+    category="EE",
+)
+def usb_dp_pullup(netlist: Netlist) -> List[Finding]:
+    findings: List[Finding] = []
+
+    dp_nets = [n for n in netlist.nets if _USB_DP_RE.search(n)]
+    if not dp_nets:
+        return findings
+
+    for dp_net in dp_nets:
+        net = netlist.nets[dp_net]
+        # Look for a resistor bridging D+ to a power net
+        has_pullup = False
+        power_nets = {n for n in netlist.nets if _is_power_net(n)}
+        for refdes, comp in netlist.components.items():
+            if comp.component_type != ComponentType.RESISTOR:
+                continue
+            comp_nets = {p.net for p in comp.pins if p.net}
+            if dp_net in comp_nets and comp_nets & power_nets:
+                has_pullup = True
+                break
+
+        if not has_pullup:
+            findings.append(Finding(
+                id=f"usb_no_dp_pullup_{dp_net}",
+                check_name="usb_dp_pullup",
+                severity=Severity.ERROR,
+                message=(
+                    f"USB D+ net '{dp_net}' has no pull-up resistor to a power rail — "
+                    f"USB Full Speed device will not enumerate on the host"
+                ),
+                affected=[dp_net],
+            ))
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# 11. Crystal load capacitors
+# ---------------------------------------------------------------------------
+
+_XTAL_PIN_RE = re.compile(
+    r'^(XI|XO|XTAL\d?|OSC_?IN|OSC_?OUT|X\d?IN|X\d?OUT|EXTAL|XTAL_?[PN])$',
+    re.IGNORECASE,
+)
+
+
+@register(
+    "Crystal/oscillator: verify symmetric load capacitors on both oscillator pins",
+    category="EE",
+)
+def crystal_load_caps(netlist: Netlist) -> List[Finding]:
+    findings: List[Finding] = []
+
+    ground_nets = {n for n in netlist.nets if _is_ground_net(n)}
+
+    # Find crystal components directly, or ICs with XTAL-named pins
+    for refdes, comp in netlist.components.items():
+        xtal_pins = [p for p in comp.pins if _XTAL_PIN_RE.match(p.name)]
+        if not xtal_pins:
+            continue
+        if comp.component_type == ComponentType.CAPACITOR:
+            continue  # skip caps themselves
+
+        for pin in xtal_pins:
+            if not pin.net:
+                continue
+            # Check for a cap from this pin to any ground net
+            net_comps = [
+                netlist.components[p.component]
+                for p in (netlist.nets.get(pin.net) or _empty_net()).pins
+                if p.component != refdes and p.component in netlist.components
+            ]
+            load_cap = any(
+                c.component_type == ComponentType.CAPACITOR
+                and any(
+                    p2.net in ground_nets
+                    for p2 in c.pins
+                    if p2.net
+                )
+                for c in net_comps
+            )
+            if not load_cap:
+                findings.append(Finding(
+                    id=f"xtal_no_load_cap_{refdes}_{pin.name}",
+                    check_name="crystal_load_caps",
+                    severity=Severity.WARN,
+                    message=(
+                        f"{refdes} oscillator pin '{pin.name}' (net '{pin.net}') "
+                        f"has no load capacitor to ground — oscillator may not start "
+                        f"or will have incorrect frequency"
+                    ),
+                    affected=[refdes],
+                    sheet=comp.sheet,
+                ))
+
+    return findings
+
+
+def _empty_net():
+    from schem_review.model import Net
+    return Net(name="")
+
+
+# ---------------------------------------------------------------------------
+# 12. Differential pair — component-level check
+# ---------------------------------------------------------------------------
+
+_DIFF_PAIR_PIN_P = re.compile(r'(_P|_POS|\+)$', re.IGNORECASE)
+_DIFF_PAIR_PIN_N = re.compile(r'(_N|_NEG|-)$',  re.IGNORECASE)
+
+
+@register(
+    "Differential pair: component pin-level check — flags when one side is absent from schematic",
+    category="EE",
+)
+def diff_pair_component_level(netlist: Netlist) -> List[Finding]:
+    """Checks each component's pin list for P/N pairs where one side is uninstantiated.
+
+    This catches cases like a missing CLKin0_N pin on LMK04828 that the
+    net-name-based differential_pairs check cannot see.
+    """
+    findings: List[Finding] = []
+
+    for refdes, comp in netlist.components.items():
+        # Build map: base_name_upper → {P: pin, N: pin}
+        pairs: Dict[str, Dict[str, object]] = {}
+        for pin in comp.pins:
+            if _DIFF_PAIR_PIN_P.search(pin.name):
+                base = _DIFF_PAIR_PIN_P.sub("", pin.name).upper()
+                pairs.setdefault(base, {})["P"] = pin
+            elif _DIFF_PAIR_PIN_N.search(pin.name):
+                base = _DIFF_PAIR_PIN_N.sub("", pin.name).upper()
+                pairs.setdefault(base, {})["N"] = pin
+
+        for base, sides in pairs.items():
+            p_pin = sides.get("P")
+            n_pin = sides.get("N")
+            if p_pin and not n_pin:
+                findings.append(Finding(
+                    id=f"diffpair_comp_missing_n_{refdes}_{base}",
+                    check_name="diff_pair_component_level",
+                    severity=Severity.ERROR,
+                    message=(
+                        f"{refdes} ({comp.part_number}): differential pin '{base}_P' "
+                        f"is present but '{base}_N' is not instantiated in the schematic"
+                    ),
+                    affected=[refdes],
+                    sheet=comp.sheet,
+                ))
+            elif n_pin and not p_pin:
+                findings.append(Finding(
+                    id=f"diffpair_comp_missing_p_{refdes}_{base}",
+                    check_name="diff_pair_component_level",
+                    severity=Severity.ERROR,
+                    message=(
+                        f"{refdes} ({comp.part_number}): differential pin '{base}_N' "
+                        f"is present but '{base}_P' is not instantiated in the schematic"
+                    ),
+                    affected=[refdes],
+                    sheet=comp.sheet,
+                ))
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# 13. Power enable pin with no driver
+# ---------------------------------------------------------------------------
+
+_EN_PIN_RE = re.compile(
+    r'^(EN|ENABLE|OE|CE|SHDN|SHUTDOWN|RUN|ON_OFF|EN\d|PD|PWR_EN)$',
+    re.IGNORECASE,
+)
+_DRIVER_DIRS = {PinDirection.OUT, PinDirection.PWR, PinDirection.BIDIR,
+                PinDirection.OC, PinDirection.TRISTATE}
+
+
+@register(
+    "Power enable/shutdown pin with no external driver — startup state is undefined",
+    category="EE",
+)
+def power_enable_undriven(netlist: Netlist) -> List[Finding]:
+    findings: List[Finding] = []
+
+    for refdes, comp in netlist.components.items():
+        if comp.component_type not in (ComponentType.REGULATOR, ComponentType.IC):
+            continue
+
+        for pin in comp.pins:
+            if not _EN_PIN_RE.match(pin.name):
+                continue
+            if not pin.net:
+                # Completely unconnected enable pin
+                findings.append(Finding(
+                    id=f"en_unconnected_{refdes}_{pin.name}",
+                    check_name="power_enable_undriven",
+                    severity=Severity.WARN,
+                    message=(
+                        f"{refdes} ({comp.part_number}) enable pin '{pin.name}' is "
+                        f"unconnected — startup state is undefined (floating enable)"
+                    ),
+                    affected=[refdes],
+                    sheet=comp.sheet,
+                ))
+                continue
+
+            net = netlist.nets.get(pin.net)
+            if not net:
+                continue
+
+            # Check for a driver on this net (exclude the component itself)
+            has_driver = any(
+                p.direction in _DRIVER_DIRS
+                for p in net.pins
+                if p.component != refdes
+            )
+            # A pull-up or pull-down resistor to a rail is acceptable
+            has_bias_r = any(
+                netlist.components.get(p.component, comp).component_type
+                == ComponentType.RESISTOR
+                for p in net.pins
+                if p.component != refdes
+            )
+
+            if not has_driver and not has_bias_r and len(net.pins) <= 1:
+                findings.append(Finding(
+                    id=f"en_undriven_{refdes}_{pin.name}",
+                    check_name="power_enable_undriven",
+                    severity=Severity.WARN,
+                    message=(
+                        f"{refdes} ({comp.part_number}) enable pin '{pin.name}' "
+                        f"(net '{pin.net}') has no driver or bias resistor — "
+                        f"startup polarity is uncontrolled"
+                    ),
+                    affected=[refdes],
+                    sheet=comp.sheet,
+                ))
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# 14. I2C address conflicts
+# ---------------------------------------------------------------------------
+
+# Known device base addresses: part_number_prefix → (base_addr_7bit, addr_pin_names)
+_I2C_ADDR_DB: Dict[str, tuple] = {
+    "AT24C":   (0x50, ["A0", "A1", "A2"]),
+    "M24C":    (0x50, ["A0", "A1", "A2"]),
+    "24LC":    (0x50, ["A0", "A1", "A2"]),
+    "24AA":    (0x50, ["A0", "A1", "A2"]),
+    "PCF8574": (0x20, ["A0", "A1", "A2"]),
+    "MCP2301": (0x20, ["A0", "A1", "A2"]),
+    "PCA9555": (0x20, ["A0", "A1", "A2"]),
+    "PCA9685": (0x40, ["A0", "A1", "A2", "A3", "A4", "A5"]),
+    "INA219":  (0x40, ["A0", "A1"]),
+    "INA226":  (0x40, ["A0", "A1"]),
+    "INA260":  (0x40, ["A0", "A1"]),
+    "ADS1115": (0x48, ["ADDR"]),
+    "ADS1015": (0x48, ["ADDR"]),
+    "MPU6050": (0x68, ["AD0"]),
+    "MPU6500": (0x68, ["AD0"]),
+    "ICM4268": (0x68, ["AD0"]),
+    "DS1307":  (0x68, []),
+    "DS3231":  (0x68, []),
+    "BMP280":  (0x76, ["SDO"]),
+    "BME280":  (0x76, ["SDO"]),
+    "LIS3DH":  (0x18, ["SDO", "SA0"]),
+    "SSD1306": (0x3C, ["SA0"]),
+}
+
+
+def _i2c_addr_signature(comp, db_entry: tuple) -> int:
+    """Compute 7-bit I2C address from address pin states."""
+    base_addr, addr_pins = db_entry
+    if not addr_pins:
+        return base_addr
+    bit = 0
+    addr = base_addr
+    for pin_name in addr_pins:
+        pin = comp.pin_by_name(pin_name)
+        if pin and pin.net:
+            # VCC → bit=1, GND → bit=0
+            if _is_power_net(pin.net):
+                addr |= (1 << bit)
+        bit += 1
+    return addr
+
+
+@register(
+    "I2C: detect devices on the same bus with conflicting 7-bit addresses",
+    category="EE",
+)
+def i2c_address_conflicts(netlist: Netlist) -> List[Finding]:
+    findings: List[Finding] = []
+
+    sda_nets = [n for n in netlist.nets if re.search(r'(?<![A-Z])SDA(?![A-Z])', n, re.IGNORECASE)]
+    scl_nets = [n for n in netlist.nets if re.search(r'(?<![A-Z])SCL(?![A-Z])', n, re.IGNORECASE)]
+
+    if not sda_nets:
+        return findings
+
+    # Group into buses: strip "SDA"/"SCL" and match by key
+    def _bus_key(net: str, sig: str) -> str:
+        return re.sub(sig, "", net, flags=re.IGNORECASE).upper().strip("_- ")
+
+    sda_buses = {_bus_key(n, "SDA"): n for n in sda_nets}
+
+    for key, sda_net in sda_buses.items():
+        # Find all ICs on this SDA bus
+        bus_comps = [
+            comp for comp in netlist.components.values()
+            if comp.component_type in (ComponentType.IC, ComponentType.REGULATOR)
+            and any(p.net == sda_net for p in comp.pins)
+        ]
+
+        # Resolve addresses for known parts
+        addr_map: Dict[int, List[str]] = {}  # addr → [refdes, ...]
+        for comp in bus_comps:
+            pn = comp.part_number or ""
+            db_entry = next(
+                (entry for prefix, entry in _I2C_ADDR_DB.items()
+                 if pn.upper().startswith(prefix.upper())),
+                None,
+            )
+            if db_entry is None:
+                continue
+            addr = _i2c_addr_signature(comp, db_entry)
+            addr_map.setdefault(addr, []).append(comp.refdes)
+
+        for addr, refdes_list in addr_map.items():
+            if len(refdes_list) > 1:
+                bus_label = f"I2C bus '{sda_net}'" if key == "" else f"I2C bus '{key}'"
+                findings.append(Finding(
+                    id=f"i2c_addr_conflict_{key or 'default'}_{addr:#04x}",
+                    check_name="i2c_address_conflicts",
+                    severity=Severity.ERROR,
+                    message=(
+                        f"{bus_label}: address conflict at 0x{addr:02X} — "
+                        f"devices {', '.join(sorted(refdes_list))} share the same address"
+                    ),
+                    affected=sorted(refdes_list),
+                    confidence=0.75,
+                ))
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# 15. I2C pull-up value vs. bus speed
+# ---------------------------------------------------------------------------
+
+# I2C spec (Table 10, UM10204): max pull-up R for each speed
+_I2C_SPEED_LIMITS = [
+    (50_000,  "Standard Mode (100 kHz)",  50e3),   # max 50 kΩ — but effectively 1/Cb
+    (12_500,  "Fast Mode (400 kHz)",      12.5e3),
+    (1_000,   "Fast-Plus Mode (1 MHz)",   1e3),
+]
+
+
+@register(
+    "I2C: pull-up resistor value exceeds the Fast Mode (400 kHz) maximum of 12.5 kΩ",
+    category="EE",
+)
+def i2c_pullup_speed(netlist: Netlist) -> List[Finding]:
+    findings: List[Finding] = []
+
+    i2c_nets = [
+        n for n in netlist.nets
+        if re.search(r'(?<![A-Z])(SDA|SCL)(?![A-Z])', n, re.IGNORECASE)
+    ]
+
+    power_nets = {n for n in netlist.nets if _is_power_net(n)}
+
+    for net_name in i2c_nets:
+        for refdes, comp in netlist.components.items():
+            if comp.component_type != ComponentType.RESISTOR:
+                continue
+            comp_nets = {p.net for p in comp.pins if p.net}
+            if net_name not in comp_nets:
+                continue
+            if not (comp_nets & power_nets):
+                continue  # not a pull-up (no pin on a power net)
+
+            if comp.value is None:
+                continue  # can't check without a parsed value
+
+            # Check against Fast Mode threshold (most common I2C speed)
+            if comp.value > 12.5e3:
+                findings.append(Finding(
+                    id=f"i2c_pullup_too_high_{refdes}_{net_name}",
+                    check_name="i2c_pullup_speed",
+                    severity=Severity.WARN,
+                    message=(
+                        f"{refdes} ({comp.value_str}) on I2C net '{net_name}' exceeds "
+                        f"the Fast Mode (400 kHz) maximum of 12.5 kΩ — "
+                        f"use ≤4.7 kΩ for reliable 400 kHz operation"
+                    ),
+                    affected=[refdes],
+                    confidence=0.85,
+                ))
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# 16. Test point coverage score
+# ---------------------------------------------------------------------------
+
+_DEBUG_NET_RE = re.compile(
+    r'UART|USART|SDA|SCL|MOSI|MISO|SCK|SWDIO|SWDCLK|TDI|TDO|TMS|TCK|'
+    r'CLK|CLOCK|STATUS|RESET|NRST|TX_|_TX|RX_|_RX|DEBUG|DIAG',
+    re.IGNORECASE,
+)
+
+
+@register(
+    "Test point coverage: flag debug/protocol nets with no associated test point",
+    category="EE",
+)
+def test_coverage_score(netlist: Netlist) -> List[Finding]:
+    findings: List[Finding] = []
+
+    # Find all test-point nets
+    tp_nets: set = set()
+    for comp in netlist.components.values():
+        if comp.component_type == ComponentType.TESTPOINT:
+            for pin in comp.pins:
+                if pin.net:
+                    tp_nets.add(pin.net)
+
+    # Find all debug/protocol signal nets
+    debug_nets = [n for n in netlist.nets if _DEBUG_NET_RE.search(n)
+                  and not _is_ground_net(n) and not _is_power_net(n)]
+
+    if not debug_nets:
+        return findings
+
+    uncovered = [n for n in debug_nets if n not in tp_nets]
+    covered   = [n for n in debug_nets if n in tp_nets]
+    pct = len(covered) / len(debug_nets) * 100
+
+    if uncovered:
+        findings.append(Finding(
+            id="test_coverage_score",
+            check_name="test_coverage_score",
+            severity=Severity.INFO,
+            message=(
+                f"Test point coverage: {len(covered)}/{len(debug_nets)} "
+                f"debug/protocol nets have a test point ({pct:.0f}%). "
+                f"Uncovered: {', '.join(sorted(uncovered)[:10])}"
+                + (" …" if len(uncovered) > 10 else "")
+            ),
+            affected=sorted(uncovered),
+            confidence=0.9,
+        ))
 
     return findings

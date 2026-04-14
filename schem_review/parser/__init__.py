@@ -20,12 +20,12 @@ def parse_file(path: str) -> Netlist:
     if ext == ".xml":
         from schem_review.parser.xml_parser import parse_xml
         return parse_xml(str(p))
-    elif ext in (".hkp", ".net", ".netlist"):
+    elif ext in (".hkp", ".net", ".netlist", ".qcv", ".txt"):
         from schem_review.parser.hkp_parser import parse_hkp
         return parse_hkp(str(p))
     else:
         raise ParseError(
-            f"Unsupported file extension '{ext}'. Expected .xml or .hkp"
+            f"Unsupported file extension '{ext}'. Expected .xml, .hkp, .net, .qcv, or .txt"
         )
 
 

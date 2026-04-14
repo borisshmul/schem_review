@@ -252,3 +252,146 @@ def net_naming_consistency(netlist: Netlist) -> List[Finding]:
             sheet="",
         ))
     return findings
+
+
+# ---------------------------------------------------------------------------
+# 6. Single-pin nets
+# ---------------------------------------------------------------------------
+
+@register(
+    "Flag nets connected to exactly one pin — almost always a dangling wire or missed connection",
+    category="DRC",
+)
+def single_pin_nets(netlist: Netlist) -> List[Finding]:
+    findings: List[Finding] = []
+    for net in netlist.nets.values():
+        if not net.name or _is_nc(net.name):
+            continue
+        if _is_ground_net(net.name) or _is_power_net(net.name):
+            continue
+        if len(net.pins) == 1:
+            pin = net.pins[0]
+            findings.append(Finding(
+                id=f"single_pin_net_{net.name}",
+                check_name="single_pin_nets",
+                severity=Severity.ERROR,
+                message=(
+                    f"Net '{net.name}' is connected to only one pin "
+                    f"({pin.component}.{pin.number}) — dangling wire or missed connection"
+                ),
+                affected=[pin.component],
+                sheet=netlist.components[pin.component].sheet
+                      if pin.component in netlist.components else "",
+            ))
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# 7. Duplicate refdes
+# ---------------------------------------------------------------------------
+
+@register(
+    "Detect components that share the same reference designator — BOM integrity error",
+    category="DRC",
+)
+def duplicate_refdes(netlist: Netlist) -> List[Finding]:
+    findings: List[Finding] = []
+    for refdes in netlist.duplicate_refdes:
+        comp = netlist.components.get(refdes)
+        sheet = comp.sheet if comp else ""
+        findings.append(Finding(
+            id=f"duplicate_refdes_{refdes}",
+            check_name="duplicate_refdes",
+            severity=Severity.ERROR,
+            message=(
+                f"Reference designator '{refdes}' appears more than once — "
+                f"BOM and assembly will be incorrect"
+            ),
+            affected=[refdes],
+            sheet=sheet,
+        ))
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# 8. Net fanout
+# ---------------------------------------------------------------------------
+
+_FANOUT_THRESHOLD = 20
+
+
+@register(
+    f"Flag nets with more than {_FANOUT_THRESHOLD} connections — possible accidental global net or missing buffer",
+    category="DRC",
+)
+def net_fanout(netlist: Netlist) -> List[Finding]:
+    findings: List[Finding] = []
+    for net in netlist.nets.values():
+        if not net.name:
+            continue
+        if _is_ground_net(net.name) or _is_power_net(net.name):
+            continue
+        if len(net.pins) > _FANOUT_THRESHOLD:
+            comps = sorted({p.component for p in net.pins})
+            findings.append(Finding(
+                id=f"net_fanout_{net.name}",
+                check_name="net_fanout",
+                severity=Severity.WARN,
+                message=(
+                    f"Net '{net.name}' has {len(net.pins)} connections "
+                    f"(threshold: {_FANOUT_THRESHOLD}) — verify no accidental short or add a buffer"
+                ),
+                affected=comps,
+                sheet="",
+            ))
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# 9. Refdes numbering gaps
+# ---------------------------------------------------------------------------
+
+@register(
+    "Detect gaps in reference designator numbering — indicates deleted components that were not renumbered",
+    category="DRC",
+)
+def refdes_numbering_gaps(netlist: Netlist) -> List[Finding]:
+    findings: List[Finding] = []
+
+    # Group refdes by prefix letter(s)
+    prefix_nums: Dict[str, List[int]] = {}
+    for refdes in netlist.components:
+        m = re.match(r"^([A-Za-z_]+)(\d+)$", refdes)
+        if not m:
+            continue
+        prefix = m.group(1).upper()
+        num = int(m.group(2))
+        prefix_nums.setdefault(prefix, []).append(num)
+
+    for prefix, nums in sorted(prefix_nums.items()):
+        if len(nums) < 3:
+            continue  # too few to infer intent
+        nums_sorted = sorted(nums)
+        full_range = set(range(nums_sorted[0], nums_sorted[-1] + 1))
+        gaps = sorted(full_range - set(nums_sorted))
+        if not gaps:
+            continue
+        # Only flag if gap is ≤10% of the range (avoid flagging intentional sparse numbering)
+        span = nums_sorted[-1] - nums_sorted[0] + 1
+        if len(gaps) > span * 0.10:
+            continue
+        gap_strs = [f"{prefix}{g}" for g in gaps[:5]]
+        suffix = f" (and {len(gaps) - 5} more)" if len(gaps) > 5 else ""
+        findings.append(Finding(
+            id=f"refdes_gap_{prefix}",
+            check_name="refdes_numbering_gaps",
+            severity=Severity.INFO,
+            message=(
+                f"Numbering gap in '{prefix}' series: "
+                f"{', '.join(gap_strs)}{suffix} are missing — "
+                f"deleted components were likely not renumbered"
+            ),
+            affected=[f"{prefix}{n}" for n in nums_sorted],
+            sheet="",
+        ))
+    return findings

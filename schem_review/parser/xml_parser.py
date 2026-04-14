@@ -158,6 +158,10 @@ def parse_xml(path: str) -> Netlist:
         _pass_flat(path, state)
         state.finalize()
 
+    from schem_review.component_classifier import classify_component
+    for comp in state.netlist.components.values():
+        classify_component(comp)
+
     return state.netlist
 
 
@@ -180,6 +184,9 @@ def _pass_components(path: str, state: _ParseState) -> None:
                     part = _first_attr(elem, _PARTNUM_ATTRS) or ""
                     sheet = sheet_stack[-1] if sheet_stack else "Sheet1"
                     comp = Component(refdes=refdes, part_number=part, sheet=sheet)
+                    if refdes in state.netlist.components:
+                        if refdes not in state.netlist.duplicate_refdes:
+                            state.netlist.duplicate_refdes.append(refdes)
                     state.netlist.components[refdes] = comp
                     state._ensure_sheet(sheet).components.append(comp)
                     state.current_comp = comp

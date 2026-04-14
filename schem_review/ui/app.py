@@ -127,7 +127,7 @@ _FOCUS_FILES  = 0
 _FOCUS_CHECKS = 1
 
 _ARMI_PANEL_H = 11   # rows reserved for Armi on SETUP tab (below checks)
-_ARMI_PANEL_W = 28   # cols reserved for Armi on RESULTS tab (right column)
+_ARMI_PANEL_W = 36   # cols reserved for Armi on RESULTS tab (right column)
 
 
 def _init_colors() -> None:
@@ -668,6 +668,17 @@ class App:
     # ── Key handling ──────────────────────────────────────────────────────────
 
     def _handle_key(self, key: int) -> bool:
+        # File picker gets absolute priority when its search bar is active —
+        # every key (including q/Q/r/R/1/2) is typed into the bar.
+        if (self.current_tab == _TAB_SETUP
+                and self.setup_focus == _FOCUS_FILES
+                and self.file_picker.search_active):
+            action = self.file_picker.handle_key(key)
+            if action == "file_selected":
+                self._on_file_selected()
+            return True
+
+        # Hard globals — only reachable when search bar is not active
         if key in (ord("q"), ord("Q")):
             return False
 
@@ -679,6 +690,7 @@ class App:
             self.show_armi = not self.show_armi
             return True
 
+        # App shortcuts
         # Easter egg — ! makes Armi jump
         if key == ord("!"):
             self._trigger_jump()
